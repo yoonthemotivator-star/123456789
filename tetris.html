@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body>
+<title>테트리스</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans+KR:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: 세 칸 콘솔 — 왼쪽(홀드·점수) / 보드 / 오른쪽(다음). 폰에서는 정보줄 → 보드 → 터치 패드 */
+:root{
+  --bg:#141726; --panel:#1d2136; --well:#0d0f1a; --grid:#20253b; --line:#2c3250;
+  --fg:#e7e9f3; --muted:#8b91b0; --accent:#ffb547;
+  --f-display:"Chakra Petch","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans KR",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;
+  overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+.console{display:grid;grid-template-columns:150px auto 150px;gap:20px;align-items:start;flex:1;min-height:0}
+.side{display:flex;flex-direction:column;gap:14px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px}
+.label{font-family:var(--f-display);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.val{font-family:var(--f-mono);font-size:22px;font-variant-numeric:tabular-nums;margin:0}
+.val.big{font-size:26px;color:var(--accent)}
+.stats{display:grid;gap:12px}
+.mini{display:block;width:100%;height:auto}
+.wellwrap{position:relative;height:100%;min-height:0;display:flex;justify-content:center}
+#board{display:block;background:var(--well);border:2px solid var(--line);border-radius:4px;max-width:100%}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:color-mix(in srgb,var(--well) 82%,transparent);text-align:center;padding:16px;border-radius:4px}
+.overlay h1{font-family:var(--f-display);font-weight:700;font-size:34px;letter-spacing:.06em;margin:0;text-wrap:balance}
+.overlay p{margin:0;color:var(--muted);font-size:14px;line-height:1.6}
+.btn{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:.08em;background:var(--accent);color:#1a1300;
+  border:0;border-radius:4px;padding:11px 26px;cursor:pointer}
+.btn:focus-visible,.pad button:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.keys{font-size:12px;color:var(--muted);line-height:1.9;margin:0}
+kbd{font-family:var(--f-mono);font-size:11px;background:var(--well);border:1px solid var(--line);border-radius:3px;padding:1px 5px;color:var(--fg)}
+.pad{display:none}
+.mobile-info{display:none}
+@media (max-width:640px){
+  body{padding-block:10px}
+  .console{grid-template-columns:1fr;gap:10px;width:100%}
+  .side{display:none}
+  .mobile-info{display:grid;grid-template-columns:56px 1fr 1fr 1fr 56px;gap:8px;align-items:center;width:100%}
+  .mobile-info .box{padding:6px 8px}
+  .mobile-info .val{font-size:16px}
+  .mobile-info .label{font-size:9px;margin-bottom:2px}
+  .pad{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;width:100%;margin-top:10px}
+  .pad button{font-family:var(--f-display);font-size:13px;font-weight:700;color:var(--fg);background:var(--panel);
+    border:1px solid var(--line);border-radius:6px;height:56px;touch-action:none}
+  .pad button:active{background:var(--line)}
+  .pad .drop{background:var(--accent);color:#1a1300;border-color:var(--accent)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="mobile-info" aria-hidden="true">
+  <div class="box"><p class="label">홀드</p><canvas class="mini" id="holdM" width="80" height="60"></canvas></div>
+  <div class="box"><p class="label">점수</p><p class="val" id="scoreM">0</p></div>
+  <div class="box"><p class="label">레벨</p><p class="val" id="levelM">1</p></div>
+  <div class="box"><p class="label">라인</p><p class="val" id="linesM">0</p></div>
+  <div class="box"><p class="label">다음</p><canvas class="mini" id="nextM" width="80" height="60"></canvas></div>
+</div>
+
+<div class="console">
+  <aside class="side">
+    <div class="box"><p class="label">홀드 · C</p><canvas class="mini" id="hold" width="120" height="80"></canvas></div>
+    <div class="box stats">
+      <div><p class="label">점수</p><p class="val big" id="score">0</p></div>
+      <div><p class="label">최고 기록</p><p class="val" id="best">0</p></div>
+      <div><p class="label">레벨</p><p class="val" id="level">1</p></div>
+      <div><p class="label">라인</p><p class="val" id="lines">0</p></div>
+    </div>
+  </aside>
+
+  <div class="wellwrap" id="wellwrap">
+    <canvas id="board" aria-label="게임 보드"></canvas>
+    <div class="overlay" id="overlay">
+      <h1 id="ovTitle">테트리스</h1>
+      <p id="ovText">줄을 채워 지우세요. 10줄마다 레벨이 오르고 낙하 속도가 빨라집니다.</p>
+      <button class="btn" id="startBtn">시작</button>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="box"><p class="label">다음</p><canvas class="mini" id="next" width="120" height="260"></canvas></div>
+    <div class="box">
+      <p class="label">조작</p>
+      <p class="keys"><kbd>←</kbd> <kbd>→</kbd> 이동<br><kbd>↑</kbd> <kbd>X</kbd> 회전<br><kbd>Z</kbd> 반대 회전<br><kbd>↓</kbd> 소프트 드롭<br><kbd>Space</kbd> 하드 드롭<br><kbd>C</kbd> 홀드 · <kbd>P</kbd> 일시정지</p>
+    </div>
+  </aside>
+</div>
+
+<div class="pad" id="pad">
+  <button data-act="left" aria-label="왼쪽">◀</button>
+  <button data-act="right" aria-label="오른쪽">▶</button>
+  <button data-act="rotate" aria-label="회전">↻</button>
+  <button data-act="soft" aria-label="소프트 드롭">▼</button>
+  <button data-act="hold" aria-label="홀드">홀드</button>
+  <button data-act="hard" class="drop" aria-label="하드 드롭">드롭</button>
+</div>
+
+<script>
+(()=>{
+const W=10,H=22,HIDDEN=2;
+const COLORS={I:"#3fd0e0",O:"#f5d142",T:"#b072e8",S:"#5ad06a",Z:"#f0565b",J:"#4f7cf0",L:"#f59a3c"};
+const SHAPES={
+  I:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+  J:[[1,0,0],[1,1,1],[0,0,0]], L:[[0,0,1],[1,1,1],[0,0,0]],
+  O:[[1,1],[1,1]], S:[[0,1,1],[1,1,0],[0,0,0]],
+  T:[[0,1,0],[1,1,1],[0,0,0]], Z:[[1,1,0],[0,1,1],[0,0,0]]};
+// SRS 킥 테이블 (y는 위쪽이 +, 적용 시 반전)
+const K_JLSTZ={"0>1":[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],"1>0":[[0,0],[1,0],[1,-1],[0,2],[1,2]],
+ "1>2":[[0,0],[1,0],[1,-1],[0,2],[1,2]],"2>1":[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+ "2>3":[[0,0],[1,0],[1,1],[0,-2],[1,-2]],"3>2":[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+ "3>0":[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],"0>3":[[0,0],[1,0],[1,1],[0,-2],[1,-2]]};
+const K_I={"0>1":[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],"1>0":[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],
+ "1>2":[[0,0],[-1,0],[2,0],[-1,2],[2,-1]],"2>1":[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],
+ "2>3":[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],"3>2":[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],
+ "3>0":[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],"0>3":[[0,0],[-1,0],[2,0],[-1,2],[2,-1]]};
+
+const $=id=>document.getElementById(id);
+const board=$("board"),ctx=board.getContext("2d");
+let cell=28;
+let grid,cur,hold,canHold,queue,bag,score,lines,level,best=0,state="idle";
+let dropAcc=0,lockTimer=0,lockResets=0,last=0,softDrop=false,clearing=null;
+
+try{best=+localStorage.getItem("tetris-best")||0}catch(e){}
+
+const rot=m=>m[0].map((_,i)=>m.map(r=>r[i]).reverse());
+function nextFromBag(){ if(!bag.length){bag=Object.keys(SHAPES);for(let i=bag.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[bag[i],bag[j]]=[bag[j],bag[i]]}} return bag.pop(); }
+function makePiece(t){const m=SHAPES[t].map(r=>r.slice());return{t,m,r:0,x:Math.floor((W-m[0].length)/2),y:t==="I"?0:1};}
+function collide(p,dx=0,dy=0,m=p.m){
+  for(let y=0;y<m.length;y++)for(let x=0;x<m[y].length;x++){ if(!m[y][x])continue;
+    const nx=p.x+x+dx,ny=p.y+y+dy;
+    if(nx<0||nx>=W||ny>=H)return true; if(ny>=0&&grid[ny][nx])return true;}
+  return false;}
+function spawn(t){
+  cur=makePiece(t||queue.shift()); if(!t)queue.push(nextFromBag());
+  lockTimer=0;lockResets=0;dropAcc=0;
+  if(collide(cur)){gameOver();}
+}
+function gravityMs(){return Math.pow(0.8-(level-1)*0.007,level-1)*1000;}
+
+function reset(){
+  grid=Array.from({length:H},()=>Array(W).fill(null));
+  bag=[];queue=[];for(let i=0;i<5;i++)queue.push(nextFromBag());
+  hold=null;canHold=true;score=0;lines=0;level=1;clearing=null;
+  spawn();updateHud();
+}
+function onGround(){return collide(cur,0,1);}
+function touchedLock(){ if(onGround()&&lockResets<15){lockTimer=0;lockResets++;} }
+function move(dx){ if(state!=="play"||clearing)return; if(!collide(cur,dx,0)){cur.x+=dx;touchedLock();} }
+function rotate(dir){
+  if(state!=="play"||clearing||cur.t==="O")return;
+  let m=cur.m; m=dir>0?rot(m):rot(rot(rot(m)));
+  const to=(cur.r+(dir>0?1:3))%4, kicks=(cur.t==="I"?K_I:K_JLSTZ)[cur.r+">"+to];
+  for(const [kx,ky] of kicks){ if(!collide(cur,kx,-ky,m)){cur.x+=kx;cur.y-=ky;cur.m=m;cur.r=to;touchedLock();return;} }
+}
+function hardDrop(){
+  if(state!=="play"||clearing)return; let n=0; while(!collide(cur,0,1)){cur.y++;n++;} score+=n*2; lock();
+}
+function doHold(){
+  if(state!=="play"||clearing||!canHold)return; canHold=false;
+  const t=cur.t; if(hold){const h=hold;hold=t;spawn(h);}else{hold=t;spawn();}
+}
+function lock(){
+  let above=true;
+  for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[y].length;x++) if(cur.m[y][x]){
+    const gy=cur.y+y; if(gy>=0)grid[gy][cur.x+x]=cur.t; if(gy>=HIDDEN)above=false;}
+  if(above){gameOver();return;}
+  const full=[];for(let y=0;y<H;y++)if(grid[y].every(c=>c))full.push(y);
+  canHold=true;
+  if(full.length){
+    score+=[0,100,300,500,800][full.length]*level;
+    clearing={rows:full,t:0}; cur=null;
+  } else spawn();
+  updateHud();
+}
+function finishClear(){
+  for(const y of clearing.rows){grid.splice(y,1);grid.unshift(Array(W).fill(null));}
+  lines+=clearing.rows.length; level=Math.floor(lines/10)+1; clearing=null; spawn(); updateHud();
+}
+function gameOver(){
+  state="over"; if(score>best){best=score;try{localStorage.setItem("tetris-best",best)}catch(e){}}
+  updateHud(); showOverlay("게임 오버",`점수 ${score.toLocaleString()} · ${lines}줄 · 레벨 ${level}`,"다시 시작");
+}
+function showOverlay(t,p,b){$("ovTitle").textContent=t;$("ovText").textContent=p;$("startBtn").textContent=b;$("overlay").hidden=false;$("startBtn").focus();}
+function start(){reset();state="play";$("overlay").hidden=true;last=performance.now();}
+function togglePause(){
+  if(state==="play"){state="pause";showOverlay("일시정지","P 또는 Esc로 계속합니다.","계속");}
+  else if(state==="pause"){state="play";$("overlay").hidden=true;last=performance.now();}
+}
+function updateHud(){
+  const s=score.toLocaleString();
+  $("score").textContent=s;$("scoreM").textContent=s;
+  $("best").textContent=Math.max(best,score).toLocaleString();
+  $("level").textContent=level;$("levelM").textContent=level;
+  $("lines").textContent=lines;$("linesM").textContent=lines;
+}
+
+// ---------- 렌더링 ----------
+function drawCell(c,x,y,s,color,alpha=1){
+  c.globalAlpha=alpha; c.fillStyle=color; c.fillRect(x+1,y+1,s-2,s-2);
+  c.fillStyle="rgba(255,255,255,.22)"; c.fillRect(x+1,y+1,s-2,Math.max(2,s*.14));
+  c.fillStyle="rgba(0,0,0,.22)"; c.fillRect(x+1,y+s-1-Math.max(2,s*.12),s-2,Math.max(2,s*.12));
+  c.globalAlpha=1;
+}
+function draw(){
+  const s=cell; ctx.clearRect(0,0,W*s,(H-HIDDEN)*s);
+  ctx.strokeStyle="#20253b";ctx.lineWidth=1;ctx.beginPath();
+  for(let x=1;x<W;x++){ctx.moveTo(x*s+.5,0);ctx.lineTo(x*s+.5,(H-HIDDEN)*s);}
+  for(let y=1;y<H-HIDDEN;y++){ctx.moveTo(0,y*s+.5);ctx.lineTo(W*s,y*s+.5);}
+  ctx.stroke();
+  for(let y=HIDDEN;y<H;y++)for(let x=0;x<W;x++){const t=grid&&grid[y][x]; if(t){
+    let a=1; if(clearing&&clearing.rows.includes(y)){a=1-clearing.t; drawCell(ctx,x*s,(y-HIDDEN)*s,s,"#ffffff",a);continue;}
+    drawCell(ctx,x*s,(y-HIDDEN)*s,s,COLORS[t]);}}
+  if(cur&&state!=="idle"){
+    let gy=0; while(!collide(cur,0,gy+1))gy++;
+    ctx.strokeStyle=COLORS[cur.t];ctx.globalAlpha=.55;ctx.lineWidth=2;
+    for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[y].length;x++) if(cur.m[y][x]){
+      const py=cur.y+y+gy-HIDDEN; if(py>=0)ctx.strokeRect((cur.x+x)*s+3,py*s+3,s-6,s-6);}
+    ctx.globalAlpha=1;
+    for(let y=0;y<cur.m.length;y++)for(let x=0;x<cur.m[y].length;x++) if(cur.m[y][x]){
+      const py=cur.y+y-HIDDEN; if(py>=0)drawCell(ctx,(cur.x+x)*s,py*s,s,COLORS[cur.t]);}
+  }
+  drawMini($("hold"),hold?[hold]:[],!canHold); drawMini($("holdM"),hold?[hold]:[],!canHold);
+  drawMini($("next"),queue?queue.slice(0,4):[]); drawMini($("nextM"),queue?queue.slice(0,1):[]);
+}
+function drawMini(cv,types,dim){
+  const c=cv.getContext("2d"),w=cv.width,h=cv.height; c.clearRect(0,0,w,h); if(!types.length)return;
+  const slot=h/types.length, s=Math.min(w/5,slot/3.2);
+  types.forEach((t,i)=>{
+    const m=SHAPES[t]; const rows=m.map((r,y)=>r.some(v=>v)?y:-1).filter(v=>v>=0);
+    const cols=[...new Set(m.flatMap(r=>r.map((v,x)=>v?x:-1)).filter(v=>v>=0))];
+    const minR=Math.min(...rows),minC=Math.min(...cols),pw=(Math.max(...cols)-minC+1)*s,ph=rows.length*s;
+    const ox=(w-pw)/2,oy=i*slot+(slot-ph)/2;
+    m.forEach((r,y)=>r.forEach((v,x)=>{ if(v)drawCell(c,ox+(x-minC)*s,oy+(y-minR)*s,s,dim?"#4a5070":COLORS[t]); }));
+  });
+}
+
+// ---------- 크기 ----------
+function fit(){
+  const wrap=$("wellwrap"); const narrow=innerWidth<=640;
+  const availH=narrow? innerHeight-200 : Math.min(innerHeight-40,760);
+  const availW=narrow? wrap.clientWidth-4 : 600;
+  cell=Math.max(14,Math.floor(Math.min(availH/(H-HIDDEN),availW/W)));
+  const dpr=window.devicePixelRatio||1;
+  board.style.width=W*cell+"px"; board.style.height=(H-HIDDEN)*cell+"px";
+  board.width=W*cell*dpr; board.height=(H-HIDDEN)*cell*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+addEventListener("resize",fit);
+
+// ---------- 루프 ----------
+function loop(now){
+  const dt=Math.min(now-last,100); last=now;
+  if(state==="play"){
+    if(clearing){clearing.t+=dt/180; if(clearing.t>=1)finishClear();}
+    else{
+      tickRepeat(now);
+      const g=softDrop?Math.min(gravityMs(),50):gravityMs();
+      if(onGround()){ lockTimer+=dt; if(lockTimer>=500)lock(); }
+      else{ dropAcc+=dt; while(dropAcc>=g){dropAcc-=g; if(!collide(cur,0,1)){cur.y++; if(softDrop){score++;updateHud();}} else break;} }
+    }
+  }
+  draw(); requestAnimationFrame(loop);
+}
+
+// ---------- 입력 (DAS/ARR) ----------
+const DAS=160,ARR=45; let held=null,heldSince=0,lastRep=0;
+function press(act){
+  if(act==="left"||act==="right"){move(act==="left"?-1:1);held=act;heldSince=performance.now();lastRep=0;}
+  else if(act==="soft")softDrop=true;
+  else if(act==="rotate")rotate(1);
+  else if(act==="ccw")rotate(-1);
+  else if(act==="hard")hardDrop();
+  else if(act==="hold")doHold();
+}
+function release(act){ if(act===held)held=null; if(act==="soft")softDrop=false; }
+function tickRepeat(now){
+  if(!held)return; if(now-heldSince<DAS)return;
+  if(now-lastRep>=ARR){move(held==="left"?-1:1);lastRep=now;}
+}
+const KEYMAP={ArrowLeft:"left",ArrowRight:"right",ArrowDown:"soft",ArrowUp:"rotate",KeyX:"rotate",KeyZ:"ccw",
+  ControlLeft:"ccw",Space:"hard",KeyC:"hold",ShiftLeft:"hold",ShiftRight:"hold"};
+addEventListener("keydown",e=>{
+  if(e.code==="KeyP"||e.code==="Escape"){togglePause();e.preventDefault();return;}
+  if(state!=="play"){ if((e.code==="Enter"||e.code==="Space")&&!$("overlay").hidden&&document.activeElement!==$("startBtn")){$("startBtn").click();e.preventDefault();} return;}
+  const a=KEYMAP[e.code]; if(!a)return; e.preventDefault(); if(e.repeat)return; press(a);
+});
+addEventListener("keyup",e=>{const a=KEYMAP[e.code]; if(a)release(a);});
+addEventListener("blur",()=>{held=null;softDrop=false; if(state==="play")togglePause();});
+
+$("pad").querySelectorAll("button").forEach(b=>{
+  const a=b.dataset.act;
+  b.addEventListener("pointerdown",e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);press(a);});
+  ["pointerup","pointercancel","lostpointercapture"].forEach(ev=>b.addEventListener(ev,()=>release(a)));
+});
+$("startBtn").addEventListener("click",()=>{ state==="pause"?togglePause():start(); });
+document.addEventListener("touchmove",e=>{ if(state==="play")e.preventDefault(); },{passive:false});
+
+grid=Array.from({length:H},()=>Array(W).fill(null)); score=0;lines=0;level=1; updateHud();
+fit(); requestAnimationFrame(t=>{last=t;loop(t);});
+})();
+</script>
+
+</body>
+</html>
